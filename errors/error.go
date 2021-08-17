@@ -21,7 +21,7 @@ func NewPositionalError(pos int, err error) error {
 }
 
 func (e *PositionalError) Error() string {
-	return fmt.Sprintf("Positional(%d): %s", e.pos, e.Error())
+	return fmt.Sprintf("Positional(%d): %s", e.pos, e.err.Error())
 }
 
 func (e *PositionalError) Position() int {
