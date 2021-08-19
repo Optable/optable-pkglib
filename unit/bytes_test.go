@@ -1,3 +1,5 @@
+// Copyright © 2021 Optable Technologies Inc. All rights reserved.
+// See LICENSE for details.
 package unit
 
 import (
