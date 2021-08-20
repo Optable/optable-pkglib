@@ -8,27 +8,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 type ConfigLoader interface {
-	Unmarshal([]byte) (interface{}, error)
+	Unmarshal([]byte, interface{}) error
 	Marshal(interface{}) ([]byte, error)
 }
 
-// Simple implementation of a loader marshaling from/into a flat json map
-type JSONMapLoader struct{}
+// Simple implementation of a loader marshaling from/into a json structure
+type JSONLoader struct{}
 
-func (l *JSONMapLoader) Unmarshal(b []byte) (interface{}, error) {
-	object := make(map[string]interface{})
-	if err := json.Unmarshal(b, &object); err != nil {
-		return nil, err
-	}
-	return object, nil
+func (l *JSONLoader) Unmarshal(b []byte, to interface{}) error {
+	return json.Unmarshal(b, to)
 }
 
-func (l *JSONMapLoader) Marshal(obj interface{}) ([]byte, error) {
-	return json.Marshal(obj)
+func (l *JSONLoader) Marshal(from interface{}) ([]byte, error) {
+	return json.Marshal(from)
 }
 
 // ConfigDir allows managing a multiple contextual configuration files
@@ -37,10 +34,22 @@ type ConfigDir struct {
 	loader ConfigLoader
 }
 
+type configInfo struct {
+	Name string
+	Path string
+}
+
 // We might want to make that configurable, the idea of having a known suffix is to allow
 // other programs to write files in the config dir without being picked up by the facility.
 // There might be better ways of doing that.
 const configExt = ".conf"
+
+// File containing the pointer to current config
+const currentName = ".current"
+
+func configName(path string) string {
+	return filepath.Base(strings.TrimSuffix(path, configExt))
+}
 
 func NewConfigDir(path string, loader ConfigLoader) (*ConfigDir, error) {
 	stat, err := os.Stat(path)
@@ -48,50 +57,102 @@ func NewConfigDir(path string, loader ConfigLoader) (*ConfigDir, error) {
 		return nil, err
 	}
 	if !stat.Mode().IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", path)
+		return nil, errors.New("not a directory")
 	}
 
 	return &ConfigDir{path, loader}, nil
 }
 
-func (c *ConfigDir) LoadPath(path string) (interface{}, error) {
-	bytes, err := os.ReadFile(path)
+func (c *ConfigDir) load(info *configInfo, as interface{}) error {
+	bytes, err := os.ReadFile(info.Path)
 	if err != nil {
-		return nil, fmt.Errorf("failed loading config at %s: %w", path, err)
+		return err
 	}
 
-	return c.loader.Unmarshal(bytes)
+	return c.loader.Unmarshal(bytes, as)
 }
 
-func (c *ConfigDir) DumpPath(path string, configData interface{}) error {
-	bytes, err := c.loader.Marshal(configData)
+func (c *ConfigDir) dump(info *configInfo, from interface{}) error {
+	bytes, err := c.loader.Marshal(from)
 	if err != nil {
-		return fmt.Errorf("failed marshaling config at %s: %w", path, err)
+		return err
 	}
 
-	return os.WriteFile(path, bytes, 0666)
+	return os.WriteFile(info.Path, bytes, 0666)
 }
 
-func (c *ConfigDir) configPath(name string) string {
-	return filepath.Join(c.path, name) + configExt
+// At least one alphanum, "-" or "_"
+var allowedConfigNameChars = regexp.MustCompile("[a-zA-Z0-9-_]")
+
+func (c *ConfigDir) configInfo(name string, mustExist bool) (*configInfo, error) {
+	// Force at least two char to avoid "-" config names which can be dangerous to work with when
+	// interacting with shells
+	if len(name) < 2 {
+		return nil, errors.New("must be at least 2 char long")
+	}
+	if !allowedConfigNameChars.MatchString(name) {
+		return nil, errors.New("only alphanum and dash allowed")
+	}
+
+	path := filepath.Join(c.path, name) + configExt
+	if mustExist {
+		stat, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if !stat.Mode().IsRegular() {
+			return nil, errors.New("not a regular file")
+		}
+	}
+
+	return &configInfo{Path: path, Name: name}, nil
 }
 
-func (c *ConfigDir) Get(name string) (interface{}, error) {
-	return c.LoadPath(c.configPath(name))
+func errConfigDir(name string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("configdir: %s: %w", name, err)
 }
 
-func (c *ConfigDir) Set(name string, configData interface{}) error {
-	return c.DumpPath(c.configPath(name), configData)
+func (c *ConfigDir) Get(name string, as interface{}) error {
+	info, err := c.configInfo(name, true)
+	if err != nil {
+		return errConfigDir(name, fmt.Errorf("get info: %w", err))
+	}
+	if err := c.load(info, as); err != nil {
+		return errConfigDir(name, fmt.Errorf("load: %w", err))
+	}
+	return nil
+}
+
+func (c *ConfigDir) Set(name string, from interface{}) error {
+	info, err := c.configInfo(name, false)
+	if err != nil {
+		return errConfigDir(name, fmt.Errorf("get info: %w", err))
+	}
+	if err := c.dump(info, from); err != nil {
+		return errConfigDir(name, fmt.Errorf("dump: %w", err))
+	}
+	return nil
 }
 
 func (c *ConfigDir) Use(name string) error {
-	configPath := c.configPath(name)
-	linkPath := filepath.Join(c.path, "current")
-	return os.Symlink(configPath, linkPath)
-}
+	_, err := c.configInfo(name, true)
+	if err != nil {
+		return errConfigDir(name, fmt.Errorf("get info: %w", err))
+	}
 
-func configName(path string) string {
-	return filepath.Base(strings.TrimSuffix(path, configExt))
+	linkPath := filepath.Join(c.path, currentName)
+	file, err := os.Create(linkPath)
+	if err != nil {
+		return errConfigDir(name, fmt.Errorf("link current: %w", err))
+	}
+
+	if _, err := file.Write([]byte(name)); err != nil {
+		return errConfigDir(name, fmt.Errorf("write current: %w", err))
+	}
+	return nil
 }
 
 func (c *ConfigDir) List() ([]string, error) {
@@ -112,25 +173,32 @@ func (c *ConfigDir) List() ([]string, error) {
 	return list, nil
 }
 
-func (c *ConfigDir) Current() (string, interface{}, error) {
-	linkPath := filepath.Join(c.path, "current")
-	info, err := os.Lstat(linkPath)
+func (c *ConfigDir) Current(as interface{}) (*configInfo, error) {
+	linkPath := filepath.Join(c.path, currentName)
+	linkStat, err := os.Stat(linkPath)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 
-	if info.Mode()&os.ModeSymlink == 0 {
-		return "", nil, errors.New("invalid current link")
+	if !linkStat.Mode().IsRegular() {
+		return nil, errConfigDir(currentName, errors.New("not a regular file"))
 	}
 
-	currentPath, err := os.Readlink(linkPath)
+	linkContent, err := os.ReadFile(linkPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed loading current link: %w", err)
+		return nil, errConfigDir(currentName, err)
 	}
 
-	config, err := c.LoadPath(currentPath)
+	name := string(linkContent)
+
+	info, err := c.configInfo(name, true)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed loading current config: %w", err)
+		return nil, errConfigDir(name, err)
 	}
-	return configName(currentPath), config, nil
+
+	if err := c.load(info, as); err != nil {
+		return nil, errConfigDir(name, err)
+	}
+
+	return info, nil
 }
