@@ -26,14 +26,14 @@ type (
 	// stopProfiling := cli.Profiling.Start()
 	// defer stopProfiling()
 	// ```
-	Profiling struct {
+	ProfilingFlag struct {
 		Profiling string `opt:"" hidden:"true" default:""`
 	}
 )
 
 // Start starts the profiling operation. It returns a function that needs to be
 // called when the profiling should stop.
-func (p *Profiling) Start() func() {
+func (p *ProfilingFlag) Start() func() {
 	path := profile.ProfilePath(".")
 	switch p.Profiling {
 	case "cpu":
