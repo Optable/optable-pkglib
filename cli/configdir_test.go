@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alecthomas/kong"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func TestOpenConfigDirFailsOnFiles(t *testing.T) {
 	file, err := ioutil.TempFile("", "pkglib-test-*")
 	require.NoError(t, err)
 	defer os.Remove(file.Name())
-	configDir, err := NewConfigDir(file.Name(), &JSONLoader{})
+	configDir, err := NewConfigDir(file.Name())
 	assert.Nil(t, configDir)
 	assert.Error(t, err)
 }
@@ -30,7 +31,7 @@ func TestOpenConfigDirFailsOnFiles(t *testing.T) {
 func TestOpenConfigDirDoesntFailOnDir(t *testing.T) {
 	dir := requireTempDir(t)
 	defer os.RemoveAll(dir)
-	configDir, err := NewConfigDir(dir, &JSONLoader{})
+	configDir, err := NewConfigDir(dir)
 	assert.NotNil(t, configDir)
 	assert.NoError(t, err)
 }
@@ -39,7 +40,7 @@ func TestConfigDirCurrentFailsOnAbsentLink(t *testing.T) {
 	dir := requireTempDir(t)
 	defer os.RemoveAll(dir)
 
-	configDir, err := NewConfigDir(dir, &JSONLoader{})
+	configDir, err := NewConfigDir(dir)
 	require.NoError(t, err)
 
 	dummy := struct{}{}
@@ -56,7 +57,7 @@ func TestConfigDirOnlyListRecognizedFiles(t *testing.T) {
 	_, err = os.CreateTemp(dir, "yes-*"+configExt)
 	require.NoError(t, err)
 
-	configDir, err := NewConfigDir(dir, &JSONLoader{})
+	configDir, err := NewConfigDir(dir)
 	require.NoError(t, err)
 	list, err := configDir.List()
 	require.NoError(t, err)
@@ -69,8 +70,7 @@ func TestConfigDirValidatesName(t *testing.T) {
 
 	dir := requireTempDir(t)
 	defer os.RemoveAll(dir)
-	loader := &JSONLoader{}
-	configDir, err := NewConfigDir(dir, loader)
+	configDir, err := NewConfigDir(dir)
 	require.NoError(t, err)
 
 	invalids := []string{
@@ -101,9 +101,8 @@ func TestConfigDirSetDumpsAndLoadConfig(t *testing.T) {
 
 	dir := requireTempDir(t)
 	defer os.RemoveAll(dir)
-	loader := &JSONLoader{}
 
-	configDir, err := NewConfigDir(dir, loader)
+	configDir, err := NewConfigDir(dir)
 	require.NoError(t, err)
 
 	fortyTwoConfig := &someConfig{
@@ -128,7 +127,7 @@ func TestConfigDirSetDumpsAndLoadConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// Recreating a config dir to show state is loaded from disk
-	configDir, err = NewConfigDir(dir, loader)
+	configDir, err = NewConfigDir(dir)
 	require.NoError(t, err)
 
 	configs, err := configDir.List()
@@ -147,4 +146,27 @@ func TestConfigDirSetDumpsAndLoadConfig(t *testing.T) {
 	assert.Equal(t, "twenty one", current.Name)
 	assert.Equal(t, 21, current.Count)
 	assert.Equal(t, true, current.Odd)
+}
+
+func TestConfigDirKongUsage(t *testing.T) {
+	type cliWithConfigDir struct {
+		ConfigDirCli
+	}
+	var cli cliWithConfigDir
+
+	parser, err := kong.New(&cli)
+	assert.NoError(t, err)
+
+	args := []string{"config", "list"}
+	_, err = parser.Parse(args)
+	assert.Error(t, err)
+
+	dir := requireTempDir(t)
+	defer os.RemoveAll(dir)
+
+	parser, err = kong.New(&cli, cli.ConfigDirCli.KongInit(dir))
+	assert.NoError(t, err)
+	_, err = parser.Parse(args)
+	assert.NoError(t, err)
+	assert.Equal(t, dir, cli.path)
 }
