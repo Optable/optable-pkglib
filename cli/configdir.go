@@ -211,9 +211,7 @@ func (c *ConfigDirCli) Get(cfg interface{}) error {
 
 	if target == "" {
 		_, err := configDir.Current(cfg)
-		if err != nil {
-			return err
-		}
+		return err
 	}
 
 	return configDir.Get(target, cfg)
