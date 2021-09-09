@@ -83,8 +83,6 @@ func NewVarLenFrameReader(r io.Reader) FrameReader {
 	})
 }
 
-var errInvalidVarint = errors.New("invalid varint32 encountered")
-
 // NewNewlineDelimitedWriter uses the trivial 'delimiter' based framing, i.e.
 // it separates messages with a `\n`. It comes with the limitation that the
 // payload should not contain a newline, this is the responsibility of the
@@ -235,10 +233,4 @@ type frameReaderFn func() ([]byte, error)
 
 func (f frameReaderFn) Read() ([]byte, error) {
 	return f()
-}
-
-type frameReaderAtFn func(int64) ([]byte, error)
-
-func (f frameReaderAtFn) ReadAt(pos int64) ([]byte, error) {
-	return f(pos)
 }
