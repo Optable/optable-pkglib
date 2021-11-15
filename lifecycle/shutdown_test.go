@@ -40,15 +40,15 @@ func TestGracefulShutdown(t *testing.T) {
 
 func TestMaybeGracefullShutdown(t *testing.T) {
 	ctx := context.Background()
-	assert.NoError(t, MaybeGracefullShutdown(ctx, basic))
-	assert.ErrorIs(t, MaybeGracefullShutdown(ctx, failShutdown), errShutdown)
+	assert.NoError(t, MaybeGracefulShutdown(ctx, basic))
+	assert.ErrorIs(t, MaybeGracefulShutdown(ctx, failShutdown), errShutdown)
 
 	aMap := make(map[string]string)
-	assert.NoError(t, MaybeGracefullShutdown(ctx, aMap))
+	assert.NoError(t, MaybeGracefulShutdown(ctx, aMap))
 
 	ctx, cancel := context.WithCancel(ctx)
 	cancel()
 
-	assert.ErrorIs(t, MaybeGracefullShutdown(ctx, basic), context.Canceled)
-	assert.ErrorIs(t, MaybeGracefullShutdown(ctx, aMap), context.Canceled)
+	assert.ErrorIs(t, MaybeGracefulShutdown(ctx, basic), context.Canceled)
+	assert.ErrorIs(t, MaybeGracefulShutdown(ctx, aMap), context.Canceled)
 }
