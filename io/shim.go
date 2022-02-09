@@ -82,6 +82,15 @@ func SafeCloser(closer io.Closer) io.Closer {
 	return &closeOnce{closer: closer}
 }
 
+// MaybeClose closes if the passed object implements io.Closer
+// and does nothing otherwise
+func MaybeClose(i interface{}) error {
+	if closer, ok := i.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
 // CloserFn implements the io.Closer interface for closures of the same
 // signature.
 type CloserFn func() error
