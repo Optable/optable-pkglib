@@ -14,10 +14,10 @@ import (
 	"google.golang.org/grpc"
 )
 
-// NewGrpcService creates a grpc service with various defaults middlewares.
+// NewGRPCService creates a grpc service with various defaults middlewares.
 // Notably, the logging and metrics are automatically registered for sane
 // defaults of observability.
-func NewGrpcService(ctx context.Context, service interface{}, descriptors []*grpc.ServiceDesc) (*grpc.Server, error) {
+func NewGRPCService(ctx context.Context, service interface{}, descriptors []*grpc.ServiceDesc) (*grpc.Server, error) {
 	if len(descriptors) == 0 {
 		return nil, errors.New("Missing descriptors")
 	}
