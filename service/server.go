@@ -14,14 +14,13 @@ import (
 	"google.golang.org/grpc"
 )
 
-// NewGrpcService creates a grpc service with various defaults middlewares.
+// NewGRPCService creates a grpc service with various defaults middlewares.
 // Notably, the logging and metrics are automatically registered for sane
 // defaults of observability.
-func NewGrpcService(ctx context.Context, service interface{}, descriptors []*grpc.ServiceDesc) (*grpc.Server, error) {
+func NewGRPCService(ctx context.Context, service interface{}, descriptors []*grpc.ServiceDesc, unaryIntercepts []grpc.UnaryServerInterceptor, streamIntercepts []grpc.StreamServerInterceptor) (*grpc.Server, error) {
 	if len(descriptors) == 0 {
 		return nil, errors.New("Missing descriptors")
 	}
-
 	// By using prometheus.DefaultRegister we benefits from the go runtime
 	// defaults metrics and Linux processes metrics.
 	registry := prometheus.DefaultRegisterer
@@ -34,19 +33,21 @@ func NewGrpcService(ctx context.Context, service interface{}, descriptors []*grp
 	}
 
 	logger := zerolog.Ctx(ctx)
+	defaultStreamInterceptors := []grpc.StreamServerInterceptor{
+		logging.StreamServerInterceptor(grpczerolog.InterceptorLogger(*logger)),
+		metrics.StreamServerInterceptor(m),
+		recovery.StreamServerInterceptor(),
+	}
+	defaultUnaryInterceptors := []grpc.UnaryServerInterceptor{
+		logging.UnaryServerInterceptor(grpczerolog.InterceptorLogger(*logger)),
+		metrics.UnaryServerInterceptor(m),
+		recovery.UnaryServerInterceptor(),
+	}
 
-	server := grpc.NewServer(
-		grpc.ChainStreamInterceptor(
-			logging.StreamServerInterceptor(grpczerolog.InterceptorLogger(*logger)),
-			metrics.StreamServerInterceptor(m),
-			recovery.StreamServerInterceptor(),
-		),
-		grpc.ChainUnaryInterceptor(
-			logging.UnaryServerInterceptor(grpczerolog.InterceptorLogger(*logger)),
-			metrics.UnaryServerInterceptor(m),
-			recovery.UnaryServerInterceptor(),
-		),
-	)
+	defaultUnaryInterceptors = append(defaultUnaryInterceptors, unaryIntercepts...)
+	defaultStreamInterceptors = append(defaultStreamInterceptors, streamIntercepts...)
+
+	server := grpc.NewServer(grpc.ChainStreamInterceptor(defaultStreamInterceptors...), grpc.ChainUnaryInterceptor(defaultUnaryInterceptors...))
 
 	for _, desc := range descriptors {
 		logger.Info().Msgf("Registering grpc service: %s", desc.ServiceName)

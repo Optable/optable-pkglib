@@ -70,10 +70,10 @@ func ServeWithGracefulShutdown(ctx context.Context, listen net.Listener, server 
 	return shutdownCompleted
 }
 
-// ServeGrpcAndMetrics behaves like ServeWithGracefulShutdown excepts that it
-// also starts a prometheus HTTP1 service on the same Listener to expose
+// ServeGRPCAndHTTP behaves like ServeWithGracefulShutdown excepts that it
+// also starts an HTTP1 service on the same Listener to expose
 // metrics.
-func ServeGrpcAndMetrics(ctx context.Context, l net.Listener, server *grpc.Server, shutdownTimeout time.Duration) <-chan error {
+func ServeGRPCAndHTTP(ctx context.Context, l net.Listener, handler http.Handler, server *grpc.Server, shutdownTimeout time.Duration) <-chan error {
 	errs := make(chan error, 1)
 
 	go func() {
@@ -101,7 +101,7 @@ func ServeGrpcAndMetrics(ctx context.Context, l net.Listener, server *grpc.Serve
 		// Serve requests for the prometheus HTTP metric handler.
 		group.Go(func() error {
 			httpServer := &http.Server{
-				Handler: promhttp.Handler(),
+				Handler: handler,
 			}
 			if err := httpServer.Serve(httpL); err != nil && !isClosedErr(err) {
 				return fmt.Errorf("Failed serving http: %w", err)
@@ -128,6 +128,13 @@ func ServeGrpcAndMetrics(ctx context.Context, l net.Listener, server *grpc.Serve
 	}()
 
 	return errs
+}
+
+// ServeGRPCAndMetrics behaves like ServeWithGracefulShutdown excepts that it
+// also starts a prometheus HTTP1 service on the same Listener to expose
+// metrics.
+func ServeGRPCAndMetrics(ctx context.Context, l net.Listener, server *grpc.Server, shutdownTimeout time.Duration) <-chan error {
+	return ServeGRPCAndHTTP(ctx, l, promhttp.Handler(), server, shutdownTimeout)
 }
 
 func isClosedErr(err error) bool {
